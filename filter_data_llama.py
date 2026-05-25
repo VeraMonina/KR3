@@ -8,6 +8,7 @@ Original file is located at
 """
 
 import pandas as pd
+import ast
  
  
 # HUMAN
@@ -70,7 +71,7 @@ def load_gpt(path: str = "gpt4omini_morph_2.csv") -> pd.DataFrame:
 # LLAMA
 # ════════════════════════════════════════════════════════════════════
 
-def load_llama(path: str = "llama_data.csv") -> pd.DataFrame:
+def load_llama(path: str = "llama_with_all.csv") -> pd.DataFrame:
     """
     Load Llama predictions, keep only Russian tokens.
 
@@ -81,7 +82,7 @@ def load_llama(path: str = "llama_data.csv") -> pd.DataFrame:
       2. sentence_text содержит ' <mask>' в конце — убираем,
          чтобы не мешало если поле используется как ключ join.
       3. probability читается как object если CSV содержит артефакты
-         (np.float16(...)) — pd.to_numeric в _normalize решает это.
+         (np.float16(...)) — ast.literal_eval + pd.to_numeric решает это.
     """
     df = pd.read_csv(path)
     df = df[df["is_russian"] == True].copy()
@@ -93,6 +94,33 @@ def load_llama(path: str = "llama_data.csv") -> pd.DataFrame:
             .str.replace(r"\s*<mask>\s*$", "", regex=True)
             .str.strip()
         )
+
+    # Функция для безопасного преобразования строки в число через ast.literal_eval
+    def parse_prob_column(col: pd.Series) -> pd.Series:
+        def _parse(x):
+            if pd.isna(x):
+                return x
+            if isinstance(x, (int, float)):
+                return float(x)
+            try:
+                # Пробуем распарсить как Python-литерал (число или строка)
+                parsed = ast.literal_eval(str(x))
+                # Если получился список/кортеж — берём первый элемент
+                if isinstance(parsed, (list, tuple)) and len(parsed) > 0:
+                    parsed = parsed[0]
+                return float(parsed)
+            except (ValueError, SyntaxError, TypeError):
+                # Если не парсится — пробуем прямое преобразование
+                try:
+                    return pd.to_numeric(x, errors="coerce")
+                except:
+                    return pd.NA
+        return col.apply(_parse)
+
+    # Применяем к probability и token_probability, если они есть
+    for col in ["probability", "token_probabilities"]:
+        if col in df.columns:
+            df[col] = parse_prob_column(df[col])
 
     return _normalize_model_df(df)
 
