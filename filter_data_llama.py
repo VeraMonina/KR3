@@ -23,8 +23,121 @@ def load_human(path: str = "people_with_prob.csv") -> pd.DataFrame:
         lambda s: s.map(s.value_counts(normalize=True))
     )
     return df
- 
 
+
+
+def _normalize_model_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Приводит датафрейм любой модели к единому интерфейсу:
+      - prediction_cleaned    (поверхностная форма)
+      - probability_converted (вероятность слова, float)
+      - feature_accuracy      (список совпавших признаков)
+      - pred_stripped         (strip поверхностной формы)
+    """
+    rename_map = {}
+    if "word" in df.columns and "prediction_cleaned" not in df.columns:
+        rename_map["word"] = "prediction_cleaned"
+    if "probability" in df.columns and "probability_converted" not in df.columns:
+        rename_map["probability"] = "probability_converted"
+    if "feature_intersection" in df.columns and "feature_accuracy" not in df.columns:
+        rename_map["feature_intersection"] = "feature_accuracy"
+
+    if rename_map:
+        df = df.rename(columns=rename_map)
+
+    # гарантируем float — на случай если pandas прочитал как object
+    df["probability_converted"] = pd.to_numeric(
+        df["probability_converted"], errors="coerce"
+    )
+
+    df["pred_stripped"] = df["prediction_cleaned"].str.strip()
+
+    return df
+
+
+# ════════════════════════════════════════════════════════════════════
+# GPT
+# ═══════════════════════════════════════════════════════════════════
+
+def load_gpt(path: str = "gpt4omini_morph_2.csv") -> pd.DataFrame:
+    """Load GPT-4o-mini predictions, keep only Russian tokens."""
+    df = pd.read_csv(path)
+    df = df[df["is_russian"] == True].copy()
+    return _normalize_model_df(df)
+
+
+# ════════════════════════════════════════════════════════════════════
+# LLAMA
+# ════════════════════════════════════════════════════════════════════
+
+def load_llama(path: str = "llama_data.csv") -> pd.DataFrame:
+    """
+    Load Llama predictions, keep only Russian tokens.
+
+    Отличия от GPT, которые фиксируются здесь:
+      1. word               → prediction_cleaned
+         probability        → probability_converted
+         feature_intersection → feature_accuracy
+      2. sentence_text содержит ' <mask>' в конце — убираем,
+         чтобы не мешало если поле используется как ключ join.
+      3. probability читается как object если CSV содержит артефакты
+         (np.float16(...)) — pd.to_numeric в _normalize решает это.
+    """
+    df = pd.read_csv(path)
+    df = df[df["is_russian"] == True].copy()
+
+    # убираем ' <mask>' из sentence_text
+    if "sentence_text" in df.columns:
+        df["sentence_text"] = (
+            df["sentence_text"]
+            .str.replace(r"\s*<mask>\s*$", "", regex=True)
+            .str.strip()
+        )
+
+    return _normalize_model_df(df)
+
+
+# ════════════════════════════════════════════════════════════════════
+# УНИВЕРСАЛЬНЫЕ ФУНКЦИИ ДЕДУПЛИКАЦИИ
+# ════════════════════════════════════════════════════════════════════
+
+def dedup_by_lemma(model_df: pd.DataFrame) -> pd.Series:
+    """target_word_id → список лемм (дедуп по лемме, топ по вероятности)."""
+    sorted_df = model_df.sort_values("probability_converted", ascending=False)
+    return (
+        sorted_df
+        .drop_duplicates(subset=["target_word_id", "lemma_word"], keep="first")
+        .groupby("target_word_id", sort=False)
+        .apply(lambda df: df["lemma_word"].tolist(), include_groups=False)
+        .rename("model_lemmas")
+    )
+
+
+def dedup_by_surface(model_df: pd.DataFrame) -> pd.Series:
+    """target_word_id → список форм (дедуп по поверхностной форме)."""
+    sorted_df = model_df.sort_values("probability_converted", ascending=False)
+    return (
+        sorted_df
+        .drop_duplicates(subset=["target_word_id", "pred_stripped"], keep="first")
+        .groupby("target_word_id", sort=False)
+        .apply(lambda df: df["pred_stripped"].tolist(), include_groups=False)
+        .rename("model_surface")
+    )
+
+
+# ════════════════════════════════════════════════════════════════════
+# РЕЕСТР МОДЕЛЕЙ
+# ════════════════════════════════════════════════════════════════════
+
+def get_all_models() -> dict:
+    """
+    Возвращает {model_name: dataframe}.
+    Чтобы добавить новую модель — одна строка здесь.
+    """
+    return {
+        "GPT-4o-mini": load_gpt(),
+        "Llama":       load_llama(),
+    }
  
 def _normalize_model_df(df: pd.DataFrame) -> pd.DataFrame:
     """
