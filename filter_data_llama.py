@@ -8,29 +8,130 @@ Original file is located at
 """
 
 import pandas as pd
+ 
+ 
+# HUMAN
+ 
+def load_human(path: str = "human_data.csv") -> pd.DataFrame:
+    """Load human cloze responses."""
+    return pd.read_csv(path)
+ 
+ 
 
-
-def load_human(path: str = "people_with_prob.csv") -> pd.DataFrame:
-    """Load human cloze data, keep only Russian answers, renormalize probability_y."""
-    df = pd.read_csv(path)
-    df = df[df["is_russian"] == True].copy()  # noqa: E712
-
-    # Recompute probability_y: within each context, the proportion of
-    # respondents who gave each answer (among remaining Russian answers).
-    df["probability_y"] = df.groupby("word.id")["answer"].transform(
-        lambda s: s.map(s.value_counts(normalize=True))
-    )
+ 
+def _normalize_model_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Приводит датафрейм любой модели к единому интерфейсу:
+      - prediction_cleaned   (поверхностная форма)
+      - probability_converted (вероятность слова)
+      - feature_accuracy      (список совпавших признаков)
+      - target_word_id, upos_word, lemma_word, feats,
+        target_mapped_POS, target_mapped_feats_ud, is_russian
+        — остаются как есть если уже присутствуют
+ 
+    Также добавляет pred_stripped (strip поверхностной формы).
+    """
+    rename_map = {}
+ 
+    # Llama называет колонки иначе — переименовываем
+    if "word" in df.columns and "prediction_cleaned" not in df.columns:
+        rename_map["word"] = "prediction_cleaned"
+    if "probability" in df.columns and "probability_converted" not in df.columns:
+        rename_map["probability"] = "probability_converted"
+    if "feature_intersection" in df.columns and "feature_accuracy" not in df.columns:
+        rename_map["feature_intersection"] = "feature_accuracy"
+ 
+    if rename_map:
+        df = df.rename(columns=rename_map)
+ 
+    # strip поверхностной формы — нужен во многих скриптах
+    df["pred_stripped"] = df["prediction_cleaned"].str.strip()
+ 
     return df
+ 
 
-
+# GPT
+ 
 def load_gpt(path: str = "gpt4omini_morph_2.csv") -> pd.DataFrame:
     """Load GPT-4o-mini predictions, keep only Russian tokens."""
     df = pd.read_csv(path)
-    return df[df["is_russian"] == True].copy()
+    df = df[df["is_russian"] == True].copy()
+    return _normalize_model_df(df)
+ 
+ 
 
-
-
-def load_gpt(path: str = "llama_with_all.csv") -> pd.DataFrame:
-    """Load GPT-4o-mini predictions, keep only Russian tokens."""
+# LLAMA
+ 
+def load_llama(path: str = "llama_with_all.csv") -> pd.DataFrame:
+    """
+    Load Llama predictions, keep only Russian tokens.
+ 
+    Совместимость с GPT:
+      word               → prediction_cleaned
+      probability        → probability_converted   (joint prob токенов из beam search)
+      feature_intersection → feature_accuracy
+ 
+    Примечание по вероятностям:
+      probability = произведение токенных вероятностей (beam search joint prob).
+      Природа та же, что у probability_converted в GPT — ненормализованное
+      распределение по топ-k словам. Нормализация по контексту не применяется,
+      чтобы сохранить сопоставимость с GPT.
+    """
     df = pd.read_csv(path)
-    return df[df["is_russian"] == True].copy()
+    df = df[df["is_russian"] == True].copy()
+    return _normalize_model_df(df)
+ 
+ 
+
+ 
+def dedup_by_lemma(model_df: pd.DataFrame) -> pd.Series:
+    """
+    Дедупликация по лемме: для каждого контекста оставляем
+    одну запись на уникальную лемму (с наибольшей вероятностью).
+    Возвращает Series: target_word_id → список лемм.
+ 
+    Использование:
+        gpt_deduped = dedup_by_lemma(gpt)
+        llama_deduped = dedup_by_lemma(llama)
+    """
+    sorted_df = model_df.sort_values("probability_converted", ascending=False)
+    return (
+        sorted_df
+        .drop_duplicates(subset=["target_word_id", "lemma_word"], keep="first")
+        .groupby("target_word_id", sort=False)
+        .apply(lambda df: df["lemma_word"].tolist(), include_groups=False)
+        .rename("model_lemmas")
+    )
+ 
+ 
+def dedup_by_surface(model_df: pd.DataFrame) -> pd.Series:
+    """
+    Дедупликация по поверхностной форме (stripped).
+    Возвращает Series: target_word_id → список форм.
+    """
+    sorted_df = model_df.sort_values("probability_converted", ascending=False)
+    return (
+        sorted_df
+        .drop_duplicates(subset=["target_word_id", "pred_stripped"], keep="first")
+        .groupby("target_word_id", sort=False)
+        .apply(lambda df: df["pred_stripped"].tolist(), include_groups=False)
+        .rename("model_surface")
+    )
+ 
+ 
+
+def get_all_models() -> dict:
+    """
+    Возвращает словарь {model_name: dataframe} для всех доступных моделей.
+    Чтобы добавить новую модель — достаточно добавить одну строку здесь.
+ 
+    Использование в скриптах анализа:
+        from filter_data import load_human, get_all_models
+        human = load_human()
+        for model_name, model_df in get_all_models().items():
+            # ... существующий код анализа ...
+    """
+    return {
+        "GPT-4o-mini": load_gpt(),
+        "Llama":       load_llama(),
+    }
