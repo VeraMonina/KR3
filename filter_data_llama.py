@@ -12,7 +12,7 @@ import pandas as pd
  
 # HUMAN
  
-def load_human(path: str = "human_data.csv") -> pd.DataFrame:
+def load_human(path: str = "people_with_prob.csv") -> pd.DataFrame:
     """Load human cloze responses."""
     return pd.read_csv(path)
  
