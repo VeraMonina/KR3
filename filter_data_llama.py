@@ -168,20 +168,7 @@ def get_all_models() -> dict:
     }
  
 def _normalize_model_df(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Приводит датафрейм любой модели к единому интерфейсу:
-      - prediction_cleaned   (поверхностная форма)
-      - probability_converted (вероятность слова)
-      - feature_accuracy      (список совпавших признаков)
-      - target_word_id, upos_word, lemma_word, feats,
-        target_mapped_POS, target_mapped_feats_ud, is_russian
-        — остаются как есть если уже присутствуют
- 
-    Также добавляет pred_stripped (strip поверхностной формы).
-    """
     rename_map = {}
- 
-    # Llama называет колонки иначе — переименовываем
     if "word" in df.columns and "prediction_cleaned" not in df.columns:
         rename_map["word"] = "prediction_cleaned"
     if "probability" in df.columns and "probability_converted" not in df.columns:
@@ -192,7 +179,11 @@ def _normalize_model_df(df: pd.DataFrame) -> pd.DataFrame:
     if rename_map:
         df = df.rename(columns=rename_map)
  
-    # strip поверхностной формы — нужен во многих скриптах
+    # гарантируем float — строки вида '1.204e-05' pandas не кастует автоматически
+    df["probability_converted"] = pd.to_numeric(
+        df["probability_converted"], errors="coerce"
+    )
+ 
     df["pred_stripped"] = df["prediction_cleaned"].str.strip()
  
     return df
