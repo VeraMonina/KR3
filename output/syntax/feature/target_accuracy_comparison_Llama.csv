@@ -1,0 +1,7 @@
+feature,match_rate_per_ctx_mean_human,match_rate_per_ctx_mean_model,delta_human_minus_model
+Case,0.6992,0.3567,0.3425
+Number,0.7059,0.6087,0.0972
+Gender,0.5389,0.3922,0.1467
+Tense,0.6434,0.2911,0.3523
+Aspect,0.4954,0.2985,0.1969
+Animacy,0.6515,0.3677,0.2838

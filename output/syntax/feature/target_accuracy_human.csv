@@ -1,0 +1,7 @@
+feature,n_predictions,n_contexts,match_rate_unweighted,match_rate_weighted,match_rate_per_ctx_mean
+Case,5263,110,0.7349,0.8664,0.6992
+Number,6269,132,0.7577,0.8432,0.7059
+Gender,5707,113,0.5814,0.713,0.5389
+Tense,737,16,0.7246,0.7,0.6434
+Aspect,1371,33,0.5646,0.606,0.4954
+Animacy,4102,84,0.6663,0.8625,0.6515

@@ -1,0 +1,8 @@
+feature,mean_pearson_r,max_pearson_r,mean_delta,n_values
+Case,0.6133,0.8457,0.1145,6
+Number,0.4908,0.5426,0.2644,2
+Gender,0.667,0.7292,0.1579,3
+Tense,0.2558,0.434,0.1065,3
+Aspect,0.5561,0.6531,0.1886,2
+Animacy,0.699,0.7022,0.1751,2
+VerbForm,0.3679,0.7475,0.0891,4
